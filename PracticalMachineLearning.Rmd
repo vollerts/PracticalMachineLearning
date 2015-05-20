@@ -1,0 +1,164 @@
+---
+title: "<center>Practical Machine Learning<br>Project Write Up<center>"
+output: html_document
+---
+
+## Objective Definition
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. 
+
+The goal of this project is to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset). 
+
+## Libraries
+
+```{r Load libraries, echo=TRUE, warning=FALSE}
+library(RCurl)
+library(lattice)
+library(caret)
+library(rpart)
+library(e1071)
+library(MASS)
+library(randomForest)
+library(ggplot2)
+set.seed(1357)
+```
+
+## Data fetch
+
+```{r Fetch csv files, echo=TRUE}
+tmp <- getURL('https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv')
+trainingData <- read.csv(text=tmp)
+
+tmp <- getURL('https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv')
+testingData <- read.csv(text=tmp)
+
+rm(tmp)
+```
+
+## Data examination
+
+There are 4 subsets of data in the training data set - belt, arm, dumbell and forearm. The following code subsets the data and shows the summary. Bottomline, all 4 subsets have 38 predictors, but most of them have incomplete data, which means those are not suitable for the prediction algorithm.
+
+To keep the .html clean, I hide the output.
+
+```{r Data head, echo=TRUE, results='hide'}
+head(trainingData, 3)
+```
+
+```{r Data subsets, echo=TRUE, results='hide'}
+belt <- trainingData[,c(8:45)]
+summary(belt)
+
+arm <- trainingData[,c(46:83)]
+summary(arm)
+
+dumbbell <- trainingData[,c(84:121)]
+summary(dumbbell)
+
+forearm <- trainingData[,c(122:159)]
+summary(forearm)
+```
+
+## Predictor extraction
+
+The valid predictors identified in the previous chunk will now be extracted.
+
+```{r Predictor extraction, echo=TRUE}
+belt_predictors <- c(8:11,37:45)
+names(trainingData[,belt_predictors])
+
+arm_predictors <- c(46:49,60:68)
+names(trainingData[,arm_predictors])
+
+dumbbell_predictors <- c(84:86, 102, 113:121)
+names(trainingData[,dumbbell_predictors])
+
+forearm_predictors <- c(122:124,140, 151:159)
+names(trainingData[,forearm_predictors])
+```
+
+## Clean data set
+
+Removing al the incomplete junk data. This will make the algorithm much faster.
+
+```{r data cleaning, echo=TRUE}
+predictors <- c(belt_predictors, arm_predictors, dumbbell_predictors, forearm_predictors)
+trainingClean <- trainingData[,c(predictors,160)]
+
+predictors <- c(belt_predictors, arm_predictors, dumbbell_predictors, forearm_predictors)
+testingClean <- testingData[,c(predictors,160)]
+```
+
+## Training & testing data
+
+Creation of both data sets, training and testing, with a 0.75/ 0.25 split
+
+```{r sub setting, echo=TRUE}
+inTrain <- createDataPartition(y=trainingClean$classe,p=0.75, list=FALSE)
+training <- trainingClean[inTrain,]
+testing <- trainingClean[-inTrain,]
+```
+
+## Methodology selection
+
+### decision tree
+
+```{r decision tree, echo=TRUE}
+clock <- as.numeric(Sys.time())
+x_dt <- train(classe~., data=training, method='rpart')
+y_dt <- confusionMatrix(testing$classe, predict(x_dt, newdata=testing))
+clock <- round(as.numeric(Sys.time() - clock),2)
+
+print(paste('Accuracy ',round(y_dt$overall[1],4),' - Clock ',clock))
+```
+
+### linear discriminant
+
+```{r linear discriminant, echo=TRUE}
+clock <- as.numeric(Sys.time())
+x_ld <- train(classe~., data=training, method='lda')
+y_ld <- confusionMatrix(testing$classe, predict(x_ld, newdata=testing))
+clock <- round(as.numeric(Sys.time() - clock),2)
+
+print(paste('Accuracy ',round(y_ld$overall[1],4),' - Clock ',clock))
+```
+
+### random forest
+
+```{r random forest, echo=TRUE}
+clock <- as.numeric(Sys.time())
+x_rf <- train(classe~., data=training, method='rf', preProcess=c('center', 'scale'), trControl=trainControl(method='cv', number = 4))
+y_rf <- confusionMatrix(testing$classe, predict(x_rf, newdata=testing))
+clock <- round(as.numeric(Sys.time() - clock),2)
+
+print(paste('Accuracy ',round(y_rf$overall[1],4),' - Clock ',clock))
+```
+
+### Conclusion
+
+Random forrest is the slowest of the 3 methods, but also the most accurate one. Hence, RF will be used for the prediction.
+
+## Prediction
+
+```{r prediction, echo=TRUE}
+clock <- as.numeric(Sys.time())
+prediction <- predict(x_rf, newdata=testingClean)
+clock <- round(as.numeric(Sys.time() - clock),2)
+
+print(clock)
+print(prediction)
+```
+
+## File generator
+
+Double check current working directory and print files.
+
+```{r generate files, echo=TRUE}
+setwd('/Users/steffenv/Desktop')
+
+for (i in 1:20) {
+    filn = paste0('problem_id_',i,'.txt')
+    write.table(prediction[i], file=filn, quote=FALSE, row.names=FALSE, col.names=FALSE)
+}
+```
+
